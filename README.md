@@ -1,30 +1,25 @@
-# Terraform Module Template
+# tf-atom-apigateway-authorizer-aws
 
 <!-- Badges: Update REPO_OWNER/REPO_NAME after creating from template -->
-[![CI](https://github.com/PlatformStackPulse/terraform-atom-molecule-module-template/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
-[![Release](https://github.com/PlatformStackPulse/terraform-atom-molecule-module-template/actions/workflows/auto-release.yml/badge.svg)](../../actions/workflows/auto-release.yml)
-[![CodeQL](https://github.com/PlatformStackPulse/terraform-atom-molecule-module-template/actions/workflows/codeql.yml/badge.svg)](../../actions/workflows/codeql.yml)
-[![Changelog](https://github.com/PlatformStackPulse/terraform-atom-molecule-module-template/actions/workflows/changelog.yml/badge.svg)](../../actions/workflows/changelog.yml)
-![Latest Release](https://img.shields.io/github/v/release/PlatformStackPulse/terraform-atom-molecule-module-template?label=latest%20release&sort=semver)
+[![CI](https://github.com/PlatformStackPulse/tf-atom-apigateway-authorizer-aws/actions/workflows/ci.yml/badge.svg)](../../actions/workflows/ci.yml)
+[![Release](https://github.com/PlatformStackPulse/tf-atom-apigateway-authorizer-aws/actions/workflows/auto-release.yml/badge.svg)](../../actions/workflows/auto-release.yml)
+[![CodeQL](https://github.com/PlatformStackPulse/tf-atom-apigateway-authorizer-aws/actions/workflows/codeql.yml/badge.svg)](../../actions/workflows/codeql.yml)
+[![Changelog](https://github.com/PlatformStackPulse/tf-atom-apigateway-authorizer-aws/actions/workflows/changelog.yml/badge.svg)](../../actions/workflows/changelog.yml)
+![Latest Release](https://img.shields.io/github/v/release/PlatformStackPulse/tf-atom-apigateway-authorizer-aws?label=latest%20release&sort=semver)
 ![Terraform](https://img.shields.io/badge/terraform-%3E%3D1.6.0-blue?logo=terraform)
-![License](https://img.shields.io/github/license/PlatformStackPulse/terraform-atom-molecule-module-template)
+![License](https://img.shields.io/github/license/PlatformStackPulse/tf-atom-apigateway-authorizer-aws)
 
-A production-ready template for creating Terraform modules following the **one module per repository** best practice, with built-in CI/CD, security scanning, testing, documentation generation, and publishing to public registries.
+A single-resource ("atom") Terraform module that provisions one **AWS API Gateway (REST) authorizer** — `TOKEN`, `REQUEST`, or `COGNITO_USER_POOLS` — with consistent naming and tagging from [tf-label](https://github.com/PlatformStackPulse/tf-label).
 
 ## Features
 
-- **One Module Per Repo** — Module lives at the root; no nested `modules/` directory
-- **Registry Publishing** — Auto-publish to Terraform Registry, Artifactory, or GitLab on release
-- **Native Terraform Testing** — `terraform test` with mock providers (no external tools)
-- **Security Scanning** — Trivy IaC scanning for HIGH/CRITICAL vulnerabilities
-- **Linting** — TFLint with AWS ruleset (preset "all")
-- **Auto Documentation** — terraform-docs generates README sections on every commit
-- **GitHub Actions CI/CD** — Workflows for the full module lifecycle
-- **Auto Release** — CI passes on main → auto-tag → GitHub Release created
-- **Pre-Commit Hooks** — Format, validate, lint, docs, and security on every commit
-- **Conventional Commits** — Enforced commit message format
-- **Semantic Versioning** — Automated version management and releases
-- **DevContainer** — VS Code remote development ready
+- **All three authorizer types** — `TOKEN`, `REQUEST` (Lambda), and `COGNITO_USER_POOLS`, selected via a single validated `type` input
+- **Type-aware wiring** — `authorizer_uri` is applied only for `TOKEN`/`REQUEST`; `provider_arns` only for `COGNITO_USER_POOLS`
+- **Configurable identity source** — defaults to `method.request.header.Authorization`
+- **Result caching** — `authorizer_result_ttl_in_seconds` controls the authorizer cache (default 300s, `0` disables)
+- **tf-label naming** — the authorizer `name` is the standard tf-label `id` (`namespace-stage-name`)
+- **Toggle with `enabled`** — set `enabled = false` to create nothing (returns `null` outputs)
+- **Native Terraform testing** — `terraform test` unit suite with a mock AWS provider (no external tools, no AWS calls)
 
 ## CI Pipeline
 
@@ -77,15 +72,19 @@ See [TEMPLATE_GUIDE.md](TEMPLATE_GUIDE.md) for detailed instructions.
 
 ## Usage
 
-### From GitHub
+### Lambda (REQUEST) authorizer
 
 ```hcl
-module "this" {
-  source = "github.com/PlatformStackPulse/terraform-aws-my-module?ref=v1.0.0"
+module "authorizer" {
+  source = "git::https://github.com/PlatformStackPulse/tf-atom-apigateway-authorizer-aws.git?ref=v1.0.0"
 
-  name        = "my-resource"
-  environment = "dev"
-  namespace   = "myorg"
+  namespace = "eg"
+  stage     = "prod"
+  name      = "api-auth"
+
+  rest_api_id    = aws_api_gateway_rest_api.this.id
+  type           = "REQUEST"
+  authorizer_uri = aws_lambda_function.authorizer.invoke_arn
 
   tags = {
     Project = "example"
@@ -94,23 +93,23 @@ module "this" {
 }
 ```
 
-### From Terraform Registry
+### Cognito user pool authorizer
 
 ```hcl
-module "this" {
-  source  = "PlatformStackPulse/my-module/aws"
-  version = "~> 1.0"
+module "authorizer" {
+  source = "git::https://github.com/PlatformStackPulse/tf-atom-apigateway-authorizer-aws.git?ref=v1.0.0"
 
-  name        = "my-resource"
-  environment = "dev"
-  namespace   = "myorg"
+  namespace = "eg"
+  stage     = "prod"
+  name      = "api-auth"
 
-  tags = {
-    Project = "example"
-    Owner   = "platform-engineering"
-  }
+  rest_api_id   = aws_api_gateway_rest_api.this.id
+  type          = "COGNITO_USER_POOLS"
+  provider_arns = [aws_cognito_user_pool.this.arn]
 }
 ```
+
+The authorizer id/arn are exposed as the `authorizer_id` / `authorizer_arn` outputs for wiring into `aws_api_gateway_method` resources.
 
 ## Module Structure
 
@@ -312,6 +311,23 @@ No resources.
 |------|-------------|
 | <a name="output_enabled"></a> [enabled](#output\_enabled) | Whether the module is enabled. |
 <!-- END_TF_DOCS -->
+
+## Tests
+
+Unit tests live in [`tests/unit/main_test.tftest.hcl`](tests/unit/main_test.tftest.hcl) and use the native Terraform test framework with a **mock AWS provider** — no real AWS calls, no credentials required. They run at `plan` and assert only on plan-known values (the tf-label `id`, resource count, and input pass-throughs).
+
+Covered cases:
+
+- `creates_when_enabled` — one authorizer is planned; `name` equals the tf-label id; `rest_api_id`/`type` pass through unchanged
+- `cognito_type_wiring` — `COGNITO_USER_POOLS` wires `provider_arns` and nulls out `authorizer_uri`
+- `disabled_creates_nothing` — with `enabled = false`, no resource is planned and `authorizer_id` is `null`
+
+Run them with:
+
+```bash
+terraform init -backend=false
+terraform test -test-directory=tests/unit        # or: make test-unit
+```
 
 ## Learning Materials
 
